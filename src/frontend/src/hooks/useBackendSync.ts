@@ -103,6 +103,20 @@ export function fromBackendUserData(ud: UserData): Partial<GrindMindData> {
   };
 }
 
+function parseJournalContent(content: string): {
+  conquered: string;
+  dominate: string;
+} {
+  const conqueredMatch = content.match(
+    /CONQUERED: (.*?)(?:\s*\|\s*TOMORROW:|$)/,
+  );
+  const tomorrowMatch = content.match(/TOMORROW: (.*?)$/);
+  return {
+    conquered: conqueredMatch?.[1]?.trim() ?? "",
+    dominate: tomorrowMatch?.[1]?.trim() ?? "",
+  };
+}
+
 export function useBackendSync() {
   const { actor } = useActor();
   const { identity } = useInternetIdentity();
@@ -113,11 +127,13 @@ export function useBackendSync() {
     useCallback(async (): Promise<Partial<GrindMindData> | null> => {
       if (!actor || !hasPrincipal) return null;
       try {
-        const [ud, userRecord, progressRecord] = await Promise.all([
-          actor.getUserData(),
-          actor.getUser(),
-          actor.getProgress(),
-        ]);
+        const [ud, userRecord, progressRecord, journalEntries] =
+          await Promise.all([
+            actor.getUserData(),
+            actor.getUser(),
+            actor.getProgress(),
+            actor.getJournalEntries(),
+          ]);
 
         const base: Partial<GrindMindData> = ud ? fromBackendUserData(ud) : {};
 
@@ -128,7 +144,16 @@ export function useBackendSync() {
         }
         if (progressRecord) {
           base.streak = Number(progressRecord.streak);
-          // tasksCompleted from the progress collection is informational
+        }
+        if (journalEntries && journalEntries.length > 0) {
+          base.journal = journalEntries.map(
+            (entry: { id: string; date: string; content: string }) => {
+              const { conquered, dominate } = parseJournalContent(
+                entry.content,
+              );
+              return { date: entry.date, conquered, dominate } as JournalEntry;
+            },
+          );
         }
 
         return Object.keys(base).length > 0 ? base : null;

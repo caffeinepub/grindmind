@@ -356,76 +356,54 @@ export function useGrindMind() {
 
   const toggleTask = useCallback(
     (task: keyof DailyTasks) => {
-      setTasksState((prev) => {
-        const wasChecked = prev[task];
-        const next = { ...prev, [task]: !wasChecked };
-        setLS(`grindmind_tasks_${todayKey()}`, next);
+      const currentTasks = stateRef.current.tasks;
+      const wasChecked = currentTasks[task];
+      const nextTasks = { ...currentTasks, [task]: !wasChecked };
 
-        if (!wasChecked) {
-          setXpState((prevXp) => {
-            let gained = 20;
-            const newCount = Object.values(next).filter(Boolean).length;
-            if (newCount === 5) gained += 50;
-            const newXp = prevXp + gained;
-            setLS("grindmind_xp", newXp);
-            return newXp;
-          });
+      setTasksState(nextTasks);
+      setLS(`grindmind_tasks_${todayKey()}`, nextTasks);
 
-          if (Object.values(next).filter(Boolean).length === 5) {
-            const lastDate = getLS<string | null>(
-              "grindmind_last_completed_date",
-              null,
-            );
-            const today = todayKey();
-            if (lastDate !== today) {
-              const yesterday = new Date();
-              yesterday.setDate(yesterday.getDate() - 1);
-              const yesterdayKey = yesterday.toISOString().split("T")[0];
-              let newStreak = 1;
-              if (lastDate === yesterdayKey) {
-                setStreakState((s) => {
-                  newStreak = s + 1;
-                  setLS("grindmind_streak", newStreak);
-                  // Sync streak and task count to progress collection
-                  setTimeout(() => {
-                    syncProgressCollection(
-                      Object.values(next).filter(Boolean).length,
-                      newStreak,
-                      today,
-                    );
-                  }, 100);
-                  return newStreak;
-                });
-              } else {
-                setStreakState(1);
-                setLS("grindmind_streak", 1);
-                syncProgressCollection(
-                  Object.values(next).filter(Boolean).length,
-                  1,
-                  today,
-                );
-              }
-              setLS("grindmind_last_completed_date", today);
-            }
-          } else {
-            // Save progress incrementally
-            const newCount = Object.values(next).filter(Boolean).length;
+      if (!wasChecked) {
+        const newCount = Object.values(nextTasks).filter(Boolean).length;
+        let gained = 20;
+        if (newCount === 5) gained += 50;
+        const newXp = stateRef.current.xp + gained;
+        setXpState(newXp);
+        setLS("grindmind_xp", newXp);
+
+        if (newCount === 5) {
+          const lastDate = getLS<string | null>(
+            "grindmind_last_completed_date",
+            null,
+          );
+          const today = todayKey();
+          if (lastDate !== today) {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayKey = yesterday.toISOString().split("T")[0];
             const currentStreak = stateRef.current.streak;
-            syncProgressCollection(newCount, currentStreak, todayKey());
+            const newStreak = lastDate === yesterdayKey ? currentStreak + 1 : 1;
+            setStreakState(newStreak);
+            setLS("grindmind_streak", newStreak);
+            setLS("grindmind_last_completed_date", today);
+            syncProgressCollection(newCount, newStreak, today);
+            fireSync({ tasks: nextTasks, xp: newXp, streak: newStreak });
+          } else {
+            syncProgressCollection(newCount, stateRef.current.streak, today);
+            fireSync({ tasks: nextTasks, xp: newXp });
           }
-
-          if (task === "workout") unlockAchievement("first_workout");
         } else {
-          setXpState((prevXp) => {
-            const newXp = Math.max(0, prevXp - 20);
-            setLS("grindmind_xp", newXp);
-            return newXp;
-          });
+          syncProgressCollection(newCount, stateRef.current.streak, todayKey());
+          fireSync({ tasks: nextTasks, xp: newXp });
         }
 
-        return next;
-      });
-      fireSync();
+        if (task === "workout") unlockAchievement("first_workout");
+      } else {
+        const newXp = Math.max(0, stateRef.current.xp - 20);
+        setXpState(newXp);
+        setLS("grindmind_xp", newXp);
+        fireSync({ tasks: nextTasks, xp: newXp });
+      }
     },
     [unlockAchievement, fireSync, syncProgressCollection],
   );
